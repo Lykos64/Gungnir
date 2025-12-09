@@ -8,6 +8,8 @@ import gl "vendor:OpenGL" // Ditto
 import "shared"
 import "core:sync"
 
+render_ready := false
+
 main :: proc () {
     // Init config (modular: pass to subsystems)
     config :=  gn_Config_Defaults()
@@ -19,7 +21,7 @@ main :: proc () {
     }
     defer gn_Window_Shutdown()
 
-    // Init ECS and events (backbones)
+    // Init ECS, events and hot-reload (backbones)
     gn_Events_Init()
     defer gn_Events_Shutdown()
     gn_Events_Register(key_press_event, gn_Handle_Key_Press) // Integrate handler
@@ -27,12 +29,7 @@ main :: proc () {
     gn_ECS_Init()
     defer gn_ECS_Shutdown()
 
-    gn_HotReload_Init()
-    sync.mutex_lock(&ecs_mutex)
-    append(&ecs_systems, hot_state.movement_proc) // Dynamic movement system
-    sync.mutex_unlock(&ecs_mutex)
-
-    gn_Render_Init()
+    gn_Hotreload_Init()
 
     // Test entity: Simple triangle
     entity := gn_ECS_Create_Entity()
@@ -67,18 +64,38 @@ main :: proc () {
     last_time := time.now()
     for !gn_Window_Should_Close() {
         gn_Window_Poll_Events()
-        gn_Events_Process()  // Handle events
+        gn_Events_Process()
 
         dt := f32(time.duration_seconds(time.since(last_time)))
         last_time = time.now()
 
-        gn_Render_Begin()  // Clear here
-        gn_ECS_Update(dt)  // Systems tick (includes render_system)
-        gn_Render_End()    // Swap here
+        // Handle reloads here
+        if ecs_reload_needed {
+            gn_Hotreload_ECS_Reload()
+            ecs_reload_needed = false
+        }
+
+        if render_reload_needed {
+            gn_Hotreload_Render_Reload()
+            fmt.printf("Render hot-reload done – enabling draw next frame\n")
+            render_reload_needed = false
+            render_ready = false 
+        }
+
+        if !render_ready {
+            gn_Window_Clear()
+            gn_Window_Swap()
+            render_ready = true
+            continue
+        }
+
+        gn_Window_Clear()  // Clears to light blue
+        gn_ECS_Update(dt)  // Runs systems (movement + render)
+        gn_Window_Swap()   // Shows the frame
     }
 
     // Cleanup
-    gl.DeleteVertexArrays(1, &vao)
-    gl.DeleteBuffers(1, &vbo)
+    // gl.DeleteVertexArrays(1, &vao)
+    // gl.DeleteBuffers(1, &vbo)
     
 }

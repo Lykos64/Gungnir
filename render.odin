@@ -1,127 +1,142 @@
 package gungnir
 
-import gl "vendor:OpenGL"
-import glfw "vendor:glfw"
 import "core:fmt"
 import "core:c"
 import "shared"
 
-shader_program: u32 // Global for simplicity
-position_loc: i32 // Global uniform location
+IS_RENDER_DLL :: #config(IS_RENDER_DLL, false)
 
-gn_Render_Init :: proc() {
-    gl.ClearColor(0.2, 0.3, 0.3, 1.0)
-    gn_Utils_Check_gl_Error("Set Clear Color")
-    gl.Enable(gl.DEPTH_TEST)
-    gn_Utils_Check_gl_Error("Enable Depth Test")
-    
-    // Hardcoded simple shaders
-    vertex_shader_src : cstring = `#version 330 core
-    layout (location = 0) in vec3 aPos;
-    uniform vec3 position;
-    void main()
-    {
-        gl_Position = vec4(aPos + position, 1.0);
-    }` 
+when IS_RENDER_DLL {
 
-    fragment_shader_src : cstring = `#version 330 core
-    out vec4 FragColor;
-    void main()
-    {
-        FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-    }` 
+    // Global state for rendering
+    global_shader_program : u32
+    global_position_loc   : i32
+    global_ecs_api        : shared.ECS_API
+    global_gl             : shared.RENDER_GL_API   // ← correct name
 
-    // Compile vertex
-    vs := gl.CreateShader(gl.VERTEX_SHADER)
-    gl.ShaderSource(vs, 1, &vertex_shader_src, nil)
-    gl.CompileShader(vs)
-    gn_Utils_Check_gl_Error("Compile Vertex Shader")
-    success: i32
-    gl.GetShaderiv(vs, gl.COMPILE_STATUS, &success)
-    if success == 0 {
-        info_log: [512]byte
-        gl.GetShaderInfoLog(vs, 512, nil, &info_log[0])
-        fmt.eprintf("Vertex shader compile failed: %s\n", cstring(&info_log[0]))
-    }
-    
-    // Compile fragment
-    fs := gl.CreateShader(gl.FRAGMENT_SHADER)
-    gl.ShaderSource(fs, 1, &fragment_shader_src, nil)
-    gl.CompileShader(fs)
-    gn_Utils_Check_gl_Error("Compile Fragment Shader")
-    gl.GetShaderiv(fs, gl.COMPILE_STATUS, &success)
-    if success == 0 {
-        info_log: [512]byte
-        gl.GetShaderInfoLog(fs, 512, nil, &info_log[0])
-        fmt.eprintf("Fragment shader compile failed: %s\n", cstring(&info_log[0]))
-    }
-    
-    // Link program
-    shader_program = gl.CreateProgram()
-    gl.AttachShader(shader_program, vs)
-    gn_Utils_Check_gl_Error("Attach Vertex Shader")
-    gl.AttachShader(shader_program, fs)
-    gn_Utils_Check_gl_Error("Attach Fragment Shader")
-    gl.LinkProgram(shader_program)
-    gn_Utils_Check_gl_Error("Link Shader Program")
-    gl.GetProgramiv(shader_program, gl.LINK_STATUS, &success)
-    if success == 0 {
-        info_log: [512]byte
-        gl.GetProgramInfoLog(shader_program, 512, nil, &info_log[0])
-        fmt.eprintf("Shader link failed: %s\n", cstring(&info_log[0]))
+    // Set ECS API for DLL use
+    @(export)
+    gn_Render_Set_API :: proc(api: shared.ECS_API) {
+        global_ecs_api = api
     }
 
-    position_loc = gl.GetUniformLocation(shader_program, cstring("position"))
-    if position_loc == -1 {
-        fmt.eprintln("Could not find uniform 'position' in shader")
+    // Set OpenGL API proxy
+    @(export)
+    gn_Render_Set_GL_API :: proc(api: shared.RENDER_GL_API) {   // name can be anything, we use this one in hotreload.odin
+        global_gl = api
     }
-    gn_Utils_Check_gl_Error("Get Uniform Location")
-    
-    // Cleanup
-    gl.DeleteShader(vs)
-    gl.DeleteShader(fs)
-}
 
-gn_Render_Begin :: proc() {
-    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-    // Actual rendering happens in gn_Render_System via ECS
-    gn_Utils_Check_gl_Error("Clear Frame")
-}
+    // Render system that draws entities
+    @(export)
+    gn_Render_ECS_System :: proc(dt: f32) {
+        if global_shader_program == 0 { return }
 
-gn_Render_End :: proc() {
-    glfw.SwapBuffers(global_window.handle)
-    gn_Utils_Check_gl_Error("Swap Buffers")
-}
+        global_gl.UseProgram(global_shader_program)
 
-gn_Render_ECS_System :: proc(dt: f32) {
-    gl.UseProgram(shader_program)
-    gn_Utils_Check_gl_Error("Use Shader Program")
-    
-    render_entities := gn_ECS_Query(typeid_of(shared.RENDER_COMPONENT))
-    defer delete(render_entities)
-    for entity in render_entities {
-        rc := cast(^shared.RENDER_COMPONENT) gn_ECS_Get_Component(entity, typeid_of(shared.RENDER_COMPONENT))
-        if rc != nil { 
-            gl.BindVertexArray(rc.vao)
-            gn_Utils_Check_gl_Error("Bind VAO")
+        entities := global_ecs_api.query(typeid_of(shared.RENDER_COMPONENT))
+        defer delete(entities)
 
-            // Apply position if entity has a POSITION_COMPONENT 
-            pos_x, pos_y, pos_z: f32 = 0.0, 0.0, 0.0 // Uniform position
-            if pos := cast(^shared.POSITION_COMPONENT) gn_ECS_Get_Component(entity, typeid_of(shared.POSITION_COMPONENT)); pos != nil {
+        for entity in entities {
+            rc := cast(^shared.RENDER_COMPONENT)global_ecs_api.get_component(entity, typeid_of(shared.RENDER_COMPONENT))
+            if rc == nil { continue }
+
+            global_gl.BindVertexArray(rc.vao)
+
+            pos_x, pos_y, pos_z : f32 = 0, 0, 0
+            if pos := cast(^shared.POSITION_COMPONENT)global_ecs_api.get_component(entity, typeid_of(shared.POSITION_COMPONENT)); pos != nil {
                 pos_x = pos.x
                 pos_y = pos.y
                 pos_z = pos.z
             }
-            gl.Uniform3f(position_loc, pos_x, pos_y, pos_z)
-            gn_Utils_Check_gl_Error("Set Uniform Position")
+            
+            if global_position_loc != -1 {
+                global_gl.Uniform3f(global_position_loc, pos_x, pos_y, pos_z)
+            }
 
-            gl.DrawArrays(gl.TRIANGLES, 0, rc.vertex_count)
-            gn_Utils_Check_gl_Error("Draw Arrays")
-            gl.BindVertexArray(0)
-            gn_Utils_Check_gl_Error("Unbind VAO")
+            global_gl.Uniform3f(global_position_loc, pos_x, pos_y, pos_z)
+            global_gl.DrawArrays(shared.GL_TRIANGLES, 0, rc.vertex_count)
+            global_gl.BindVertexArray(0)
+        }
+
+        global_gl.UseProgram(0)
+    }
+
+    // Cleanup rendering resources
+    @(export)
+    gn_Render_Cleanup :: proc() {
+        if global_shader_program != 0 {
+            global_gl.DeleteProgram(global_shader_program)
+            global_shader_program = 0
         }
     }
 
-    gl.UseProgram(0)
-    gn_Utils_Check_gl_Error("Unuse Shader Program")
-}
+    // Initialize rendering resources (shader compilation)
+    @(export)
+    gn_Render_Init :: proc() -> bool {
+        // Clean old program if any (important on hot-reload)
+        if global_shader_program != 0 {
+            global_gl.DeleteProgram(global_shader_program)
+            global_shader_program = 0
+        }
+
+        // Pure ASCII, explicitly converted to cstring
+        vertex_src   := cstring("#version 330 core\nlayout (location = 0) in vec3 aPos;\nuniform vec3 u_position_offset;\nvoid main() { gl_Position = vec4(aPos + u_position_offset, 1.0); }\n")
+        fragment_src := cstring("#version 330 core\nout vec4 FragColor;\nvoid main() { FragColor = vec4(1.0, 0.3, 0.5, 1.0); }\n")
+
+        vs := global_gl.CreateShader(shared.GL_VERTEX_SHADER)
+        defer global_gl.DeleteShader(vs)
+        global_gl.ShaderSource(vs, 1, &vertex_src, nil)
+        global_gl.CompileShader(vs)
+
+        success: i32
+        global_gl.GetShaderiv(vs, shared.GL_COMPILE_STATUS, &success)
+        if success == 0 {
+            info_log: [1024]byte
+            global_gl.GetShaderInfoLog(vs, 1024, nil, &info_log[0])
+            fmt.eprintf("VERTEX SHADER COMPILATION FAILED:\n%s\n", cstring(&info_log[0]))
+            return false
+        }
+
+        fs := global_gl.CreateShader(shared.GL_FRAGMENT_SHADER)
+        defer global_gl.DeleteShader(fs)
+        global_gl.ShaderSource(fs, 1, &fragment_src, nil)
+        global_gl.CompileShader(fs)
+
+        global_gl.GetShaderiv(fs, shared.GL_COMPILE_STATUS, &success)
+        if success == 0 {
+            info_log: [1024]byte
+            global_gl.GetShaderInfoLog(fs, 1024, nil, &info_log[0])
+            fmt.eprintf("FRAGMENT SHADER COMPILATION FAILED:\n%s\n", cstring(&info_log[0]))
+            return false
+        }
+
+        global_shader_program = global_gl.CreateProgram()
+        global_gl.AttachShader(global_shader_program, vs)
+        global_gl.AttachShader(global_shader_program, fs)
+        global_gl.LinkProgram(global_shader_program)
+
+        global_gl.GetProgramiv(global_shader_program, shared.GL_LINK_STATUS, &success)
+        if success == 0 {
+            info_log: [1024]byte
+            global_gl.GetProgramInfoLog(global_shader_program, 1024, nil, &info_log[0])
+            fmt.eprintf("PROGRAM LINK FAILED:\n%s\n", cstring(&info_log[0]))
+            global_gl.DeleteProgram(global_shader_program)
+            global_shader_program = 0
+            return false
+        }
+
+        global_position_loc = global_gl.GetUniformLocation(
+            global_shader_program,
+            cstring("u_position_offset"),
+        )
+
+        if global_position_loc == -1 {
+            fmt.eprintf("WARNING: uniform 'u_position_offset' not found or optimized out!\n")
+            // You can still continue — just don't upload every frame
+            // or fall back to a dummy location
+        }
+
+        fmt.printf("RENDER INIT SUCCESS: program=%d, pos_loc=%d\n", global_shader_program, global_position_loc)
+        return true
+    }
+} // End when IS_RENDER_DLL

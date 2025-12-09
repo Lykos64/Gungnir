@@ -4,6 +4,7 @@ import "core:fmt"
 import gl "vendor:OpenGL"
 import "core:os"
 
+// Check for OpenGL errors and print them
 gn_Utils_Check_gl_Error :: proc(error_context: string) {
     err := gl.GetError()
     for err != gl.NO_ERROR {
@@ -12,6 +13,7 @@ gn_Utils_Check_gl_Error :: proc(error_context: string) {
     }
 }
 
+// Copy a file from source to destination
 gn_Utils_Copy_File :: proc(src, dst: string) -> (ok: bool) {
     data, read_ok := os.read_entire_file(src)
     if !read_ok { return false }
@@ -19,3 +21,4 @@ gn_Utils_Copy_File :: proc(src, dst: string) -> (ok: bool) {
     write_ok := os.write_entire_file(dst, data)
     return write_ok
 }
+

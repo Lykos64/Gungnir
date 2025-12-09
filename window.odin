@@ -4,13 +4,31 @@ import glfw "vendor:glfw"
 import gl "vendor:OpenGL" 
 import "core:fmt"
 import "base:runtime"
+import "shared"
 
-Window :: struct {
-    handle: glfw.WindowHandle,
-    width, height: i32,
+global_window : shared.Window
+
+// Global OpenGL API proxy
+global_render_gl_api: shared.RENDER_GL_API = {
+    CreateShader       = gl.CreateShader,
+    ShaderSource       = gl.ShaderSource,
+    CompileShader      = gl.CompileShader,
+    GetShaderiv        = gl.GetShaderiv,
+    GetShaderInfoLog   = gl.GetShaderInfoLog,
+    DeleteShader       = gl.DeleteShader,
+    CreateProgram      = gl.CreateProgram,
+    AttachShader       = gl.AttachShader,
+    LinkProgram        = gl.LinkProgram,
+    GetProgramiv       = gl.GetProgramiv,
+    GetProgramInfoLog  = gl.GetProgramInfoLog,
+    DeleteProgram      = gl.DeleteProgram,
+    GetUniformLocation = gl.GetUniformLocation,
+    UseProgram         = gl.UseProgram,
+    BindVertexArray    = gl.BindVertexArray,
+    Uniform3f          = gl.Uniform3f,
+    DrawArrays         = gl.DrawArrays,
+    GetError           = gl.GetError,
 }
-
-global_window : Window
 
 gn_Window_Init :: proc(config: ^ENGINE_CONFIG) -> bool {
     if !glfw.Init() { 
@@ -38,7 +56,11 @@ gn_Window_Init :: proc(config: ^ENGINE_CONFIG) -> bool {
     global_window.height = config.window_height
 
     glfw.MakeContextCurrent(global_window.handle)
-    gl.load_up_to(3, 3, glfw.gl_set_proc_address) // Load OpenGL functions
+    gl.load_up_to(3, 3, glfw.gl_set_proc_address)
+
+    gn_Window_Set_Clear_Color()
+    gl.Enable(gl.DEPTH_TEST)
+    gn_Utils_Check_gl_Error("Enable Depth Test")
 
     // Input setup
     glfw.SetKeyCallback(global_window.handle, gn_Window_Key_Callback)
@@ -46,6 +68,20 @@ gn_Window_Init :: proc(config: ^ENGINE_CONFIG) -> bool {
     return true
 }
 
+gn_Window_Set_Clear_Color :: proc() {
+    gl.ClearColor(0.2, 0.3, 0.3, 1.0)  // Light blue-ish teal, as in your exe comment.
+}
+
+gn_Window_Clear :: proc() {
+    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+}
+
+// Swap window buffers.
+gn_Window_Swap :: proc() {
+    glfw.SwapBuffers(global_window.handle)
+}
+
+// Shutdown window and GLFW
 gn_Window_Shutdown :: proc() {
     glfw.DestroyWindow(global_window.handle)
     glfw.Terminate()

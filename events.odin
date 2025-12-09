@@ -2,7 +2,7 @@ package gungnir
 
 import "core:slice"
 import "core:fmt"
-import glfw "vendor:glfw" 
+import glfw "vendor:glfw"
 
 // Event as tagged union for types
 EVENT :: union {
@@ -16,9 +16,10 @@ KEY_PRESS_EVENT :: struct {
 
 key_press_event := typeid_of(KEY_PRESS_EVENT)
 
+// Event handler procedure signature
 gn_Events_Handler :: proc (event: EVENT) // Handler proc signature
 
-// Registry: Map of handlers per event type
+// Global event handlers and queue
 handlers: map[typeid][dynamic]gn_Events_Handler
 event_queue: [dynamic]EVENT 
 
@@ -32,6 +33,7 @@ gn_Events_Shutdown :: proc() {
     delete(event_queue)
 }
 
+// Register a handler for a specific event type
 gn_Events_Register :: proc(T: typeid, handler: gn_Events_Handler) {
     if T not_in handlers {
         handlers[T] = make([dynamic]gn_Events_Handler)
@@ -39,10 +41,12 @@ gn_Events_Register :: proc(T: typeid, handler: gn_Events_Handler) {
     append(&handlers[T], handler)
 }
 
+// Queue an event to be processed later
 gn_Events_Fire :: proc(event: EVENT) {
     append(&event_queue, event) // Queue for later process
 }
 
+// Process all queued events, calling registered handlers
 gn_Events_Process :: proc() {
     for event in event_queue {
         // Handle each variant explicitly to get correct typeid
