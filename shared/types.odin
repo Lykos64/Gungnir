@@ -3,6 +3,7 @@ package gungnir_shared
 
 import "core:slice"
 import glfw "vendor:glfw"
+import "core:math/linalg"
 
 // Shared types used by both the main executable and hot-reloaded DLLs
 
@@ -22,8 +23,12 @@ POSITION_COMPONENT :: struct {
 // Rendering data for an entity (OpenGL-specific)
 RENDER_COMPONENT :: struct {
 	using base: COMPONENT,
-	vao: u32,           // Vertex Array Object handle
-	vertex_count: i32,  // Number of vertices to draw
+	vao: u32,
+	vbo: u32,
+	ebo: u32, 			// 0 = no indices -> use DrawArrays instead of DrawElements
+	vertex_count: i32,
+	index_count: i32, 	// 0 = non-indexed
+	index_type: u32, 	// GL_UNSIGNED_SHORT or GL_UNSIGNED_INT
 }
 
 // Public API that the main exe gives to DLLs to access the ECS
@@ -61,7 +66,9 @@ RENDER_GL_API :: struct {
 	BindVertexArray:    proc "c" (u32),
 	Uniform3f:          proc "c" (i32, f32, f32, f32),
 	DrawArrays:         proc "c" (u32, i32, i32),
+	DrawElements:       proc "c" (u32, i32, u32, rawptr), 
 	GetError:           proc "c" () -> u32,
+	UniformMatrix4fv:   proc "c" (i32, i32, bool, [^]f32),
 }
 
 // Hardcoded OpenGL constants – avoids importing the real OpenGL DLL in hot-reloaded modules
@@ -72,3 +79,14 @@ GL_LINK_STATUS     :: 0x8B82
 GL_INFO_LOG_LENGTH :: 0x8B84
 GL_TRIANGLES       :: 0x0004
 GL_NO_ERROR        :: 0x0000
+
+// Camera component for controlling the view in the scene
+CAMERA_COMPONENT :: struct {
+    using base: COMPONENT,
+    position: [3]f32,
+    yaw, pitch: f32,          // in degrees
+    speed: f32,
+    sensitivity: f32,
+}
+
+MAT4 :: linalg.Matrix4f32

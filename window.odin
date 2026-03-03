@@ -27,7 +27,9 @@ global_render_gl_api: shared.RENDER_GL_API = {
     BindVertexArray    = gl.BindVertexArray,
     Uniform3f          = gl.Uniform3f,
     DrawArrays         = gl.DrawArrays,
+    DrawElements	    = gl.DrawElements,
     GetError           = gl.GetError,
+    UniformMatrix4fv   = gl.UniformMatrix4fv,
 }
 
 gn_Window_Init :: proc(config: ^ENGINE_CONFIG) -> bool {

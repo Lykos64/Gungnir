@@ -6,6 +6,7 @@ import "core:slice"
 import "core:math"
 import "shared"
 import "core:sync"
+import gl "vendor:OpenGL"
 
 // Set to true when building this file as ecs.dll
 IS_ECS_DLL :: #config(IS_ECS_DLL, false)
@@ -34,6 +35,19 @@ gn_ECS_Shutdown :: proc() {
         for _, ptr in comp_map { free(ptr) }
         delete(comp_map)
     }
+    render_entities := gn_ECS_Query(typeid_of(shared.RENDER_COMPONENT))
+    for entity in render_entities {
+        rc := cast(^shared.RENDER_COMPONENT) gn_ECS_Get_Component(entity, typeid_of(shared.RENDER_COMPONENT))
+        if rc != nil {
+            gl.DeleteVertexArrays(1, &rc.vao)
+            gl.DeleteBuffers(1, &rc.vbo)
+            if rc.ebo != 0 {
+                gl.DeleteBuffers(1, &rc.ebo)
+            }
+    }
+}
+delete(render_entities)
+
     delete(ecs_entities)
     delete(ecs_systems)
 }
